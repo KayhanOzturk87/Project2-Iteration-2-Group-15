@@ -1,8 +1,10 @@
 <?php
+// $page_title should ideally be set before including header.php to affect the <title> tag.
+// We'll set a default here and try to update the main heading dynamically.
 $page_title_default = "Course Details - Crown Institute";
 
-if (empty($base_url)) $base_url = '/'; 
-include 'includes/header.php'; 
+if (empty($base_url)) $base_url = '/'; // Ensure $base_url is correct
+include 'includes/header.php'; // This starts session and includes common head elements
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: " . $base_url . "login.php?error=auth_required");
@@ -10,7 +12,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 require_once __DIR__ . '/config/db_connect.php';
 
-$page_specific_title = $page_title_default; 
+$page_specific_title = $page_title_default; // Initialize with default
 
 if (!isset($_GET['course_id'])) {
     $_SESSION['error_message'] = "Course ID not specified.";
@@ -42,6 +44,7 @@ try {
     $page_specific_title = htmlspecialchars($course['title']) . " - Unit Page";
 
 
+    // Check if student is enrolled (if logged in as student)
     if ($_SESSION['user_role'] === 'student') {
         $stmt_enroll = $pdo->prepare("SELECT 1 FROM Enrollments WHERE user_id = ? AND course_id = ?");
         $stmt_enroll->execute([$_SESSION['user_id'], $course_id]);
@@ -50,6 +53,7 @@ try {
         }
     }
 
+    // Fetch Unit Titles
     if (isset($course['units_titles_json'])) {
         $decoded_units = json_decode($course['units_titles_json'], true);
         if (json_last_error() === JSON_ERROR_NONE && is_array($decoded_units)) {
@@ -59,6 +63,7 @@ try {
         }
     }
 
+    // Fetch Course Materials
     $stmt_materials = $pdo->prepare("SELECT material_id, file_name, file_path, title, description, upload_date
                                      FROM CourseMaterials
                                      WHERE course_id = ? ORDER BY upload_date DESC");
@@ -71,6 +76,7 @@ try {
 }
 
 ?>
+<!-- Top Navigation for Course Specific Links -->
 <nav class="bg-[#0B1F51] text-white shadow-lg">
     <div class="max-w-full px-4 mx-auto">
         <div class="flex flex-col sm:flex-row justify-between items-center h-auto sm:h-16 py-2 sm:py-0">
@@ -101,6 +107,8 @@ try {
 </nav>
 
 <div class="flex flex-col md:flex-row min-h-[calc(100vh-4rem)]">
+    <!-- Adjusted min-height -->
+    <!-- Left Sidebar for Units -->
     <div
         class="w-full md:w-64 bg-[#0B1F51] text-white flex-shrink-0 md:sticky md:top-16 md:self-start md:max-h-[calc(100vh-4rem)] md:overflow-y-auto">
         <div class="p-4">
@@ -124,6 +132,7 @@ try {
         </div>
     </div>
 
+    <!-- Main Content Area -->
     <div class="flex-1 p-6 sm:p-8 bg-gray-50">
         <?php if (isset($page_error)): ?>
         <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
@@ -143,7 +152,8 @@ try {
                 </div>
             </div>
 
-            <?php if ($is_student_enrolled || $_SESSION['user_role'] === 'teacher'): ?>
+            <!-- Display Course Materials -->
+            <?php if ($is_student_enrolled || $_SESSION['user_role'] === 'teacher'): // Show materials if student is enrolled OR if user is a teacher ?>
             <?php if (!empty($course_materials)): ?>
             <div class="mt-8 bg-white p-6 rounded-lg shadow">
                 <h3 class="text-xl font-semibold text-[#0B1F51] mb-4">Course Materials</h3>
@@ -174,13 +184,13 @@ try {
                     <?php endforeach; ?>
                 </ul>
             </div>
-            <?php elseif ($_SESSION['user_role'] === 'student'):  ?>
+            <?php elseif ($_SESSION['user_role'] === 'student'): // Enrolled student but no materials ?>
             <div class="mt-8 bg-white p-6 rounded-lg shadow">
                 <h3 class="text-xl font-semibold text-[#0B1F51] mb-4">Course Materials</h3>
                 <p class="text-gray-600">No materials have been uploaded for this course yet.</p>
             </div>
             <?php endif; ?>
-            <?php elseif ($_SESSION['user_role'] === 'student' && !$is_student_enrolled):  ?>
+            <?php elseif ($_SESSION['user_role'] === 'student' && !$is_student_enrolled): // Student not enrolled ?>
             <div class="mt-8 bg-white p-6 rounded-lg shadow">
                 <p class="text-gray-700">You must be enrolled in this course to view its materials.
                     <a href="<?php echo $base_url; ?>courses.php?category=<?php echo urlencode($course['category'] ?? ''); ?>#course-<?php echo $course['course_id']; ?>"
@@ -229,7 +239,7 @@ try {
 <script>
 const base_url_js = '<?php echo $base_url; ?>';
 
-
+// Unit Content Display Logic
 function displayUnitContent(event, index, title, content) {
     event.preventDefault();
     const mainContentArea = document.getElementById('mainCourseContent');
@@ -251,29 +261,31 @@ function displayUnitContent(event, index, title, content) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Attempt to display first unit or course overview
     const firstUnitLink = document.querySelector('#sidebar a');
     if (firstUnitLink && firstUnitLink.hasAttribute('onclick')) {
+        // A more robust way to trigger the first unit display
         const onclickAttr = firstUnitLink.getAttribute('onclick');
         try {
-
+            // This is a simplified way to extract params, might need refinement
             const params = onclickAttr.match(/displayUnitContent\((?:event,\s*)?(\d+),\s*'(.*?)',\s*'(.*?)'\)/);
             if (params && params.length === 4) {
                 const index = parseInt(params[1]);
                 const title = params[2].replace(/\\'/g, "'");
                 const content = params[3].replace(/\\'/g, "'");
-
+                // Call with a mock event if your function expects it
                 displayUnitContent({
                     preventDefault: () => {}
                 }, index, title, content);
             } else {
-                loadCourseOverview();
+                loadCourseOverview(); // Fallback if parsing fails
             }
         } catch (e) {
             console.error("Error auto-displaying first unit:", e);
-            loadCourseOverview();
+            loadCourseOverview(); // Fallback
         }
     } else {
-        loadCourseOverview();
+        loadCourseOverview(); // If no units, or first link not suitable.
     }
 
     // Chatbot initialization
@@ -283,6 +295,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function loadCourseOverview() {
+    // This function ensures the course overview is shown if no unit is clicked or on initial load without units
     const mainContentArea = document.getElementById('mainCourseContent');
     const mainContentTitle = document.getElementById('mainContentTitle');
     const courseTitlePHP = <?php echo json_encode($course['title'] ?? 'Course Overview'); ?>;

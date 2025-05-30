@@ -116,8 +116,8 @@
                         <span class="inline-block px-2 py-1 text-xs font-semibold rounded-full 
                                 <?php 
                                 switch ($course['category']) {
-                                    case 'programming': echo 'bg-blue-100 text-blue-800'; break;
-                                    case 'design': echo 'bg-purple-100 text-purple-800'; break;
+                                    case 'information technology': echo 'bg-blue-100 text-blue-800'; break;
+                                    case 'accounting': echo 'bg-purple-100 text-purple-800'; break;
                                     case 'business': echo 'bg-green-100 text-green-800'; break;
                                     default: echo 'bg-gray-100 text-gray-800';
                                 }

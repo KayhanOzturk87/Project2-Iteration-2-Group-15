@@ -1,7 +1,7 @@
 <?php
 $page_title = "Student Dashboard - Crown Institute";
-if (empty($base_url)) $base_url = '/learning_assistant/'; // Ensure $base_url is correct
-include 'includes/header.php'; // Includes session_start()
+if (empty($base_url)) $base_url = '/';
+include 'includes/header.php';
 
 if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'student') {
     header("Location: " . $base_url . "login.php?error=unauthorized");
@@ -10,34 +10,33 @@ if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'student') {
 require_once __DIR__ . '/config/db_connect.php';
 
 $student_id = $_SESSION['user_id'];
-$student_name = $_SESSION['user_name']; // Set during login
+$student_name = $_SESSION['user_name'];
 
 $enrolled_courses = [];
-$overall_progress_data = ['completed' => 0, 'in_progress' => 0, 'total_enrolled' => 0];
-$upcoming_assignments_placeholder = []; // Placeholder for now
+$overall_summary_data = ['total_enrolled' => 0, 'courses_completed_via_quiz' => 0];
 
 try {
     $stmt = $pdo->prepare("
-        SELECT c.course_id, c.title, c.image_url, c.category, e.progress, e.quiz_score, u.name as instructor_name
+        SELECT 
+            c.course_id, c.title, c.image_url, c.category, 
+            e.progress, e.quiz_score, 
+            u.name as instructor_name,
+            q.quiz_id, 
+            IF(q.questions_json IS NOT NULL AND JSON_VALID(q.questions_json), JSON_LENGTH(q.questions_json), 0) as quiz_total_questions 
         FROM Enrollments e
         JOIN Courses c ON e.course_id = c.course_id
         JOIN Users u ON c.instructor_id = u.user_id
+        LEFT JOIN Quizzes q ON c.course_id = q.course_id
         WHERE e.user_id = ?
         ORDER BY e.last_accessed DESC
     ");
     $stmt->execute([$student_id]);
     $enrolled_courses = $stmt->fetchAll();
 
-    $overall_progress_data['total_enrolled'] = count($enrolled_courses);
+    $overall_summary_data['total_enrolled'] = count($enrolled_courses);
     foreach ($enrolled_courses as $course) {
-        // Simple progress: if a quiz score exists, consider it some progress. 100 if quiz score is max (assuming 10 for example)
-        // This progress logic is very basic and can be refined.
-        // For now, let's use the 'progress' column from Enrollments if it's meaningful, or derive.
-        // The current 'progress' in DB is INT DEFAULT 0. Let's assume it's manually updated or by quiz for now.
         if (isset($course['progress']) && $course['progress'] >= 100) {
-             $overall_progress_data['completed']++;
-        } elseif (isset($course['progress']) && $course['progress'] > 0) {
-            $overall_progress_data['in_progress']++;
+             $overall_summary_data['courses_completed_via_quiz']++;
         }
     }
 
@@ -73,7 +72,6 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
     </div>
     <?php endif; ?>
 
-
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div class="md:col-span-2 bg-white rounded-lg shadow-md p-6">
             <h2 class="text-xl font-semibold mb-4 text-[#0B1F51]">My Enrolled Courses</h2>
@@ -84,6 +82,15 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
             <?php else: ?>
             <div class="space-y-4">
                 <?php foreach ($enrolled_courses as $course): ?>
+                <?php
+                    $course_progress_percent = 0;
+                    if (isset($course['quiz_total_questions']) && $course['quiz_total_questions'] > 0 && isset($course['quiz_score'])) {
+                        $course_progress_percent = round(((int)$course['quiz_score'] / (int)$course['quiz_total_questions']) * 100);
+                    } elseif (isset($course['progress'])) { // Fallback to stored progress if quiz data isn't definitive
+                        $course_progress_percent = (int)$course['progress'];
+                    }
+                    $course_progress_percent = max(0, min(100, $course_progress_percent)); // Clamp between 0 and 100
+                ?>
                 <div class="border rounded-lg p-4 hover:shadow-md transition-shadow">
                     <div class="flex flex-col sm:flex-row justify-between items-start">
                         <div class="flex items-center mb-2 sm:mb-0">
@@ -100,20 +107,19 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                             </div>
                         </div>
                         <div class="text-left sm:text-right w-full sm:w-auto mt-2 sm:mt-0">
-                            <div class="text-[#0B1F51] font-semibold"><?php echo (int)($course['progress'] ?? 0); ?>%
-                                Complete
+                            <div class="text-[#0B1F51] font-semibold"><?php echo $course_progress_percent; ?>% Complete
                             </div>
                             <div class="w-full sm:w-32 h-2 bg-gray-200 rounded-full mt-1">
                                 <div class="h-full bg-[#FFB800] rounded-full"
-                                    style="width: <?php echo (int)($course['progress'] ?? 0); ?>%"></div>
+                                    style="width: <?php echo $course_progress_percent; ?>%"></div>
                             </div>
-                            <?php 
-                            $quiz_total_placeholder = 10; 
-                            if ($course['quiz_score'] !== null): 
-                            ?>
+                            <?php if ($course['quiz_score'] !== null && isset($course['quiz_total_questions'])): ?>
                             <p class="text-xs text-gray-500 mt-1">Last Quiz:
-                                <?php echo htmlspecialchars($course['quiz_score']); ?>/<?php echo $quiz_total_placeholder; ?>
+                                <?php echo htmlspecialchars($course['quiz_score']); ?>/<?php echo htmlspecialchars($course['quiz_total_questions']); ?>
                             </p>
+                            <?php elseif ($course['quiz_score'] !== null): ?>
+                            <p class="text-xs text-gray-500 mt-1">Last Quiz Score:
+                                <?php echo htmlspecialchars($course['quiz_score']); ?> (Total N/A)</p>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -133,12 +139,12 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                 <div class="grid grid-cols-2 gap-4">
                     <div class="text-center p-3 bg-gray-50 rounded-lg">
                         <div class="text-2xl font-bold text-[#0B1F51]">
-                            <?php echo $overall_progress_data['total_enrolled']; ?></div>
+                            <?php echo $overall_summary_data['total_enrolled']; ?></div>
                         <div class="text-sm text-gray-600">Courses Enrolled</div>
                     </div>
                     <div class="text-center p-3 bg-gray-50 rounded-lg">
                         <div class="text-2xl font-bold text-green-600">
-                            <?php echo $overall_progress_data['completed']; ?></div>
+                            <?php echo $overall_summary_data['courses_completed_via_quiz']; ?></div>
                         <div class="text-sm text-gray-600">Courses Completed</div>
                     </div>
                 </div>
@@ -150,11 +156,8 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
 
             <div class="bg-white rounded-lg shadow-md p-6">
                 <h2 class="text-xl font-semibold mb-4 text-[#0B1F51]">Upcoming Assignments</h2>
-                <?php if (empty($upcoming_assignments_placeholder)): ?>
                 <p class="text-gray-500 text-sm">No upcoming assignments for now. Check your course pages for details.
                 </p>
-                <?php else: ?>
-                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -187,7 +190,6 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
         <i class="fas fa-comment-dots text-xl sm:text-2xl"></i>
     </button>
 </div>
-
 
 <script>
 const base_url_js = '<?php echo $base_url; ?>';
@@ -277,7 +279,6 @@ async function sendMessageToBackend() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Chatbot initialization
     if (document.getElementById('chatMessages')) {
         addBotMessage("Hello! I'm your Learning Assistant. How can I help you today?");
     }
